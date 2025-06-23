@@ -1,6 +1,6 @@
 # Создание бакета с основными настройками
 resource "yandex_storage_bucket" "bucket" {
-  bucket     = "bucket-are" 
+  bucket     = var.bucket_name
   acl        = "public-read"               
   max_size   = 1073741824
   force_destroy = true      # Удаление непустого бакета (только для тестов и учёбы)        
@@ -14,14 +14,14 @@ resource "yandex_storage_bucket" "bucket" {
 
 # Создание сети и подсети
 resource "yandex_vpc_network" "network" {
-  name = "network"
+  name = var.network_name
 }
 
 resource "yandex_vpc_subnet" "public-subnet" {
   name           = "public-subnet"
-  zone           = "ru-central1-a"
+  zone           = var.default_zone
   network_id     = yandex_vpc_network.network.id
-  v4_cidr_blocks = ["192.168.10.0/24"]
+  v4_cidr_blocks = [var.subnet_cidr]
 }
 
 # Security Group
@@ -60,8 +60,7 @@ data "template_file" "cloudinit_lamp" {
         <title>LAMP on Yandex Cloud</title>
     </head>
     <body>
-        <h1>Welcome to LAMP Stack</h1>
-        <img src="https://storage.yandexcloud.net/bucket-are/cat.png" alt="Image from bucket">
+        <img src="https://storage.yandexcloud.net/${var.bucket_name}/${var.bucket_image_path}" alt="Image from bucket">
     </body>
     </html>' > /var/www/html/index.html
     systemctl restart apache2
@@ -71,8 +70,8 @@ data "template_file" "cloudinit_lamp" {
 # Instance Group с привязкой только к ALB
 resource "yandex_compute_instance_group" "lamp_group" {
   name                = "lamp-instance-group"
-  folder_id           = "b1ge6bvcgcf6f5fdolhp"
-  service_account_id  = "ajeplfmmgo62lk4c2ack"
+  folder_id           = var.folder_id
+  service_account_id  = var.service_account_id
   deletion_protection = false
 
   instance_template {
@@ -87,7 +86,7 @@ resource "yandex_compute_instance_group" "lamp_group" {
 
     boot_disk {
       initialize_params {
-        image_id = "fd827b91d99psvq5fjit"
+        image_id = var.instance_image_id
         size     = 20
       }
     }
@@ -114,7 +113,7 @@ resource "yandex_compute_instance_group" "lamp_group" {
   }
 
   allocation_policy {
-    zones = ["ru-central1-a"]
+    zones = [var.default_zone]
   }
 
   deploy_policy {
@@ -189,7 +188,7 @@ resource "yandex_alb_load_balancer" "lamp_alb" {
 
   allocation_policy {
     location {
-      zone_id   = "ru-central1-a"
+      zone_id   = var.default_zone
       subnet_id = yandex_vpc_subnet.public-subnet.id
     }
   }
