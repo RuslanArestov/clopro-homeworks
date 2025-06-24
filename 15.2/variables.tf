@@ -53,4 +53,5 @@ variable "instance_count" {
 variable "service_account_id" {
   type        = string
   sensitive   = true
+  default = "ajeplfmmgo62lk4c2ack"
 }
