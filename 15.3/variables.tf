@@ -12,7 +12,7 @@ variable "folder_id" {
 
 variable "bucket_name" {
   type        = string
-  default     = "bucket-are"
+  default     = "lumennore.ru"
 }
 
 variable "service_account_id" {
