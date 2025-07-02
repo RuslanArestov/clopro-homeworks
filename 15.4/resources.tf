@@ -3,6 +3,7 @@ resource "yandex_vpc_network" "network" {
 }
 
 ################################ Cluster MySQL ##############################
+# Отказоустойчивый кластер с 3 нодами (2 реплики)
 resource "yandex_vpc_subnet" "private-subnet-a" {
   name           = "private-subnet-a"
   zone           = var.default_zone
@@ -69,12 +70,14 @@ resource "yandex_mdb_mysql_cluster" "claster-mysql" {
     assign_public_ip = false
   }
 
+  # Техническое обслуживание кластера
   maintenance_window {
     type = "WEEKLY"
     day  = "SAT"
     hour = "23"
   }
 
+  # Backup данных кластера
   backup_window_start {
     hours   = "23"
     minutes = "59"
@@ -98,6 +101,7 @@ resource "yandex_mdb_mysql_user" "netology" {
 
 
 ################################ Cluster Kubernetes ##############################
+# Отказоустойчивый региональный автомасштабируемый кластер с 3 нодами
 resource "yandex_vpc_subnet" "public-subnet-a" {
   name           = "public-subnet-a"
   zone           = "ru-central1-a"
@@ -119,12 +123,13 @@ resource "yandex_vpc_subnet" "public-subnet-d" {
   v4_cidr_blocks = [var.public-subnet_cidr-d]
 }
 
-# Сервисные аккаунты
+# Сервисный аккаунт для управления кластером
 resource "yandex_iam_service_account" "k8s-admin" {
   name        = "k8s-admin"
   description = "Service account for managing K8S cluster"
 }
 
+# Сервисный аккаунт для worker nodes
 resource "yandex_iam_service_account" "k8s-nodes" {
   name        = "k8s-nodes"
   description = "Service account for K8S worker nodes"
@@ -149,8 +154,7 @@ resource "yandex_resourcemanager_folder_iam_binding" "k8s-nodes-roles" {
   members   = ["serviceAccount:${yandex_iam_service_account.k8s-nodes.id}"]
 }
 
-
-# KMS ключ для шифрования
+# KMS ключ для шифрования данных с автоматической ротацией
 resource "yandex_kms_symmetric_key" "k8s-key" {
   name              = "k8s-encryption-key"
   default_algorithm = "AES_128"
@@ -164,6 +168,7 @@ resource "yandex_kms_symmetric_key_iam_binding" "viewer" {
 }
 
 # Группы безопасности
+# https://kubernetes.io/docs/reference/networking/ports-and-protocols/
 resource "yandex_vpc_security_group" "k8s-master-sg" {
   name       = "k8s-master-sg"
   network_id = yandex_vpc_network.network.id
@@ -205,6 +210,7 @@ resource "yandex_vpc_security_group" "k8s-nodes-sg" {
 }
 
 # Региональный кластер Kubernetes
+# Кластер распределен по 3 зонам
 resource "yandex_kubernetes_cluster" "regional_cluster" {
   name        = "regional-k8s-cluster"
   network_id  = yandex_vpc_network.network.id
@@ -234,6 +240,7 @@ resource "yandex_kubernetes_cluster" "regional_cluster" {
 
     # security_group_ids = [yandex_vpc_security_group.k8s-master-sg.id]
 
+    # Автообновление кластера
     maintenance_policy {
       auto_upgrade = true
       maintenance_window {
@@ -244,16 +251,19 @@ resource "yandex_kubernetes_cluster" "regional_cluster" {
     }
   }
 
+  # Используем созданный KMS-ключ
   kms_provider {
       key_id = yandex_kms_symmetric_key.k8s-key.id
     }
 
+  # Устанавливаем сервисные аккаунты
   service_account_id      = yandex_iam_service_account.k8s-admin.id
   node_service_account_id = yandex_iam_service_account.k8s-nodes.id
 
   release_channel         = "STABLE"
   network_policy_provider = "CALICO"
 
+  # Обязательно указываем зависимость от создания сервисных аккаунтов
   depends_on = [
     yandex_iam_service_account.k8s-admin,
     yandex_iam_service_account.k8s-nodes,
@@ -264,7 +274,7 @@ resource "yandex_kubernetes_cluster" "regional_cluster" {
 
 }
 
-# Группа узлов с автоскейлингом
+# Группа worker-узлов с автоскейлингом
 resource "yandex_kubernetes_node_group" "k8s-nodes" {
   cluster_id  = yandex_kubernetes_cluster.regional_cluster.id
   name        = "k8s-nodes"
@@ -292,7 +302,7 @@ resource "yandex_kubernetes_node_group" "k8s-nodes" {
       subnet_ids = [
         yandex_vpc_subnet.public-subnet-a.id]
       nat                 = true
-      # security_group_ids  = [yandex_vpc_security_group.k8s-nodes-sg.id]
+      security_group_ids  = [yandex_vpc_security_group.k8s-nodes-sg.id]
     }
 
     metadata = {
@@ -308,6 +318,7 @@ resource "yandex_kubernetes_node_group" "k8s-nodes" {
     }
   }
 
+  # Распределение worker nodes по зонам. Лучше указывать несколько зон для отказоустойчивости
   allocation_policy {
     location {
       zone = "ru-central1-a"
@@ -320,11 +331,14 @@ resource "yandex_kubernetes_node_group" "k8s-nodes" {
   }
 }
 
+# Генерируем kubeconfig в файле kubeconfig.yaml для подключения к кластеру
 resource "local_file" "kubeconfig" {
   filename = "${path.module}/kubeconfig.yaml"
   content = templatefile("${path.module}/kubeconfig.tpl", {
-    cluster_endpoint = yandex_kubernetes_cluster.regional_cluster.master[0].external_v4_endpoint
+    cluster_endpoint = yandex_kubernetes_cluster.regional_cluster.master[0].external_v4_endpoint # Kubernetes API
     cluster_ca      = base64encode(yandex_kubernetes_cluster.regional_cluster.master[0].cluster_ca_certificate)
     token           = data.yandex_client_config.client.iam_token
   })
 }
+
+# После генерации kubeconfig.yaml выполняем команду: export KUBECONFIG=./kubeconfig.yaml
