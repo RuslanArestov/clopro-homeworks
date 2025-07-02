@@ -37,3 +37,5 @@ spec:
             limits:
               cpu: "500m"
               memory: "256Mi"
+
+# Подключаемся к public-ip phpmyadmin-service, а он уже перебрасывает на мастер-ноду кластера MySQL              
