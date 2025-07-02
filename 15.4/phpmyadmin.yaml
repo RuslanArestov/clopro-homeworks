@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phpmyadmin
+  labels:
+    app: phpmyadmin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: phpmyadmin
+  template:
+    metadata:
+      labels:
+        app: phpmyadmin
+    spec:
+      containers:
+        - name: phpmyadmin
+          image: phpmyadmin/phpmyadmin:latest
+          ports:
+            - containerPort: 80
+          env:
+            - name: PMA_HOST
+              value: "rc1a-uhu8v1n0kubf27n3.mdb.yandexcloud.net"
+            - name: PMA_PORT
+              value: "3306"
+            - name: PMA_ARBITRARY
+              value: "1"  # Разрешает подключение к любым серверам MySQL
+            - name: MYSQL_USER
+              value: "netology"
+            - name: MYSQL_PASSWORD
+              value: "12345678"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
